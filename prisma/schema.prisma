@@ -1,0 +1,229 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CONTRACTOR
+  CONSULTANT
+  VIEWER
+}
+
+enum VerdictStatus {
+  ELIGIBLE
+  BORDERLINE
+  INELIGIBLE
+}
+
+enum TenderStatus {
+  UPLOADED
+  PROCESSING
+  EXTRACTED
+  FAILED
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  name            String
+  role            UserRole @default(CONTRACTOR)
+  organizationId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  profile         ContractorProfile?
+  tenders         TenderDocument[]
+  verdicts        EligibilityVerdict[]
+  auditLogs       AuditLog[]
+
+  @@index([email])
+  @@index([organizationId])
+}
+
+model ContractorProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  companyName       String
+  gstNumber         String?
+  panNumber         String?
+  registrationNumber String?
+  category          String?  // Class A, B, C etc.
+  specializations   String[] // Array of specialization areas
+
+  // Financial
+  turnoverHistory   Json     // JSONB: [{year, amount, audited}]
+  netWorth          Decimal? @db.Decimal(15,2)
+  creditRating      String?
+
+  // Experience
+  yearsOfExperience Int?
+  pastProjects      Json     // JSONB: [{name, value, client, year, scope}]
+  completionCerts   Json?    // JSONB: [{projectId, certUrl, issuedBy}]
+
+  // Documents
+  licenses          Json     // JSONB: [{type, number, issuedBy, validFrom, validTo, docUrl}]
+  certificates      Json     // JSONB: [{type, number, issuedBy, validFrom, validTo, docUrl}]
+
+  // Versioning
+  version           Int      @default(1)
+  previousVersions  Json?    // JSONB: array of past snapshots
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verdicts          EligibilityVerdict[]
+
+  @@index([companyName])
+  @@index([gstNumber])
+}
+
+model TenderDocument {
+  id                String       @id @default(uuid())
+  userId            String
+  fileName          String
+  fileUrl           String
+  fileSize          Int
+  mimeType          String
+  status            TenderStatus @default(UPLOADED)
+  processingError   String?
+
+  // Extracted structured data
+  tenderNumber      String?
+  issuingAuthority  String?
+  projectName       String?
+  projectValue      Decimal?     @db.Decimal(15,2)
+  emdAmount         Decimal?     @db.Decimal(15,2)
+  turnoverReq       Decimal?     @db.Decimal(15,2)
+  experienceReq     Int?         // years required
+  bidDeadline       DateTime?
+  prebidDate        DateTime?
+  completionPeriod  String?
+
+  // Complex extracted data (JSONB)
+  keyDates          Json?        // JSONB: [{event, date}]
+  requiredDocuments Json?        // JSONB: string[]
+  technicalCriteria Json?        // JSONB: [{criterion, requirement, weight}]
+  financialCriteria Json?        // JSONB: [{criterion, requirement, weight}]
+  riskFlags         Json?        // JSONB: [{flag, severity, clause, explanation}]
+  summaryText       String?      @db.Text
+  extractedRawText  String?      @db.Text
+
+  ocrUsed           Boolean      @default(false)
+  processingTimeMs  Int?
+  aiModel           String?
+  tokenCost         Int?
+
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clauses           ExtractedClause[]
+  verdicts          EligibilityVerdict[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([tenderNumber])
+  @@index([issuingAuthority])
+}
+
+model ExtractedClause {
+  id              String   @id @default(uuid())
+  tenderId        String
+  clauseNumber    String
+  clauseTitle     String
+  clauseText      String   @db.Text
+  category        String   // ELIGIBILITY | FINANCIAL | TECHNICAL | LEGAL | TIMELINE | PENALTY
+  isEligibility   Boolean  @default(false)
+  isMandatory     Boolean  @default(false)
+  riskLevel       String?  // HIGH | MEDIUM | LOW
+  metadata        Json?    // JSONB: any additional structured data
+
+  createdAt       DateTime @default(now())
+
+  tender          TenderDocument @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@index([tenderId])
+  @@index([category])
+  @@index([isEligibility])
+}
+
+model EligibilityVerdict {
+  id              String        @id @default(uuid())
+  userId          String
+  tenderId        String
+  profileId       String
+  overallVerdict  VerdictStatus
+  confidenceScore Float         // 0.0 - 1.0
+  overallExplanation String?    @db.Text
+
+  // Clause-wise breakdown
+  clauseResults   Json          // JSONB: [{clause, met, explanation, confidence}]
+  financialMatch  Json?         // JSONB: {turnoverMet, netWorthMet, details}
+  technicalMatch  Json?         // JSONB: {experienceMet, certsMet, details}
+  documentGaps    Json?         // JSONB: [{document, status, action}]
+
+  // Engine metadata
+  rulesVersion    String        @default("1.0")
+  aiModel         String?
+  processingTimeMs Int?
+
+  createdAt       DateTime      @default(now())
+
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tender          TenderDocument     @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  profile         ContractorProfile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenderId])
+  @@index([profileId])
+  @@index([overallVerdict])
+}
+
+model Document {
+  id              String   @id @default(uuid())
+  userId          String
+  profileId       String?
+  fileName        String
+  fileUrl         String
+  fileType        String   // LICENSE | CERTIFICATE | FINANCIAL | PROJECT | OTHER
+  fileSize        Int
+  mimeType        String
+  expiryDate      DateTime?
+  isExpired       Boolean  @default(false)
+  metadata        Json?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([profileId])
+  @@index([fileType])
+  @@index([expiryDate])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String
+  action      String   // UPLOAD_TENDER | EXTRACT | VERDICT | PROFILE_UPDATE | LOGIN | EXPORT
+  entityType  String   // TENDER | PROFILE | VERDICT | USER
+  entityId    String
+  details     Json?
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
