@@ -20,7 +20,10 @@ async function fetchJson<T>(url: string): Promise<T> {
 export function useTenders() {
     return useQuery<TenderSummary[]>({
         queryKey: ["tenders"],
-        queryFn: () => fetchJson<TenderSummary[]>("/api/tenders"),
+        queryFn: async () => {
+            const res = await fetchJson<{ data: TenderSummary[]; meta: unknown }>("/api/tenders?pageSize=50")
+            return res.data
+        },
     })
 }
 
