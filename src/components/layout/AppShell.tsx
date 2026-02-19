@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import {
     LayoutDashboard,
@@ -28,7 +28,10 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
+import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { useUser } from "@/hooks/useUser"
+import { createClient } from "@/lib/supabase/client"
 
 const NAV_ITEMS = [
     { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
@@ -39,7 +42,16 @@ const NAV_ITEMS = [
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
     const pathname = usePathname()
+    const router = useRouter()
+    const { user, loading, fullName, email, avatarUrl, initials } = useUser()
     const [isSidebarOpen, setIsSidebarOpen] = React.useState(true)
+
+    const handleLogout = async () => {
+        const supabase = createClient()
+        await supabase.auth.signOut()
+        router.push("/login")
+        router.refresh()
+    }
 
     return (
         <div className="min-h-screen bg-background flex">
@@ -89,7 +101,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     <Button
                         variant="ghost"
                         className="w-full justify-start gap-4 text-muted-foreground hover:text-red-400"
-                        onClick={() => {/* Logout Logic */ }}
+                        onClick={handleLogout}
                     >
                         <LogOut className="w-5 h-5" />
                         {isSidebarOpen && <span>Logout</span>}
@@ -142,34 +154,46 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                             <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />
                         </Button>
 
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                                    <Avatar className="h-8 w-8">
-                                        <AvatarImage src="/avatars/01.png" alt="@shadcn" />
-                                        <AvatarFallback>CN</AvatarFallback>
-                                    </Avatar>
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent className="w-56" align="end" forceMount>
-                                <DropdownMenuLabel className="font-normal">
-                                    <div className="flex flex-col space-y-1">
-                                        <p className="text-sm font-medium leading-none">Global Build Corp</p>
-                                        <p className="text-xs leading-none text-muted-foreground">
-                                            admin@globalbuild.com
-                                        </p>
-                                    </div>
-                                </DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem>Profile</DropdownMenuItem>
-                                <DropdownMenuItem>Billing</DropdownMenuItem>
-                                <DropdownMenuItem>Settings</DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem className="text-red-400">
-                                    Log out
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        {loading ? (
+                            <Skeleton className="h-8 w-8 rounded-full" />
+                        ) : (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                                        <Avatar className="h-8 w-8">
+                                            {avatarUrl && (
+                                                <AvatarImage src={avatarUrl} alt={fullName} />
+                                            )}
+                                            <AvatarFallback className="bg-gradient-to-br from-blue-600 to-cyan-500 text-white text-xs font-semibold">
+                                                {initials}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="w-56" align="end" forceMount>
+                                    <DropdownMenuLabel className="font-normal">
+                                        <div className="flex flex-col space-y-1">
+                                            <p className="text-sm font-medium leading-none">{fullName}</p>
+                                            <p className="text-xs leading-none text-muted-foreground">
+                                                {email}
+                                            </p>
+                                        </div>
+                                    </DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <Link href="/dashboard/profile">
+                                        <DropdownMenuItem>Profile</DropdownMenuItem>
+                                    </Link>
+                                    <DropdownMenuItem>Billing</DropdownMenuItem>
+                                    <Link href="/dashboard/settings">
+                                        <DropdownMenuItem>Settings</DropdownMenuItem>
+                                    </Link>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem className="text-red-400 cursor-pointer" onClick={handleLogout}>
+                                        Log out
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
                     </div>
                 </header>
 
