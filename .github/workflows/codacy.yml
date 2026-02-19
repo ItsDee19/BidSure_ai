@@ -54,8 +54,34 @@ jobs:
           # This will handover control about PR rejection to the GitHub side
           max-allowed-issues: 2147483647
 
+      # Check if SARIF file has results before uploading
+      - name: Validate SARIF results
+        id: sarif-check
+        run: |
+          if [ -f results.sarif ]; then
+            # Check if the SARIF file has at least one run with results
+            RESULTS_COUNT=$(cat results.sarif | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          runs = data.get('runs', [])
+          count = sum(len(r.get('results', [])) for r in runs)
+          print(count)
+          " 2>/dev/null || echo "0")
+            echo "results_count=$RESULTS_COUNT" >> $GITHUB_OUTPUT
+            if [ "$RESULTS_COUNT" -gt "0" ]; then
+              echo "has_results=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_results=false" >> $GITHUB_OUTPUT
+              echo "⚠️ SARIF file has no results, skipping upload"
+            fi
+          else
+            echo "has_results=false" >> $GITHUB_OUTPUT
+            echo "⚠️ SARIF file not found, skipping upload"
+          fi
+
       # Upload the SARIF file generated in the previous step
       - name: Upload SARIF results file
-        uses: github/codeql-action/upload-sarif@v3
+        if: steps.sarif-check.outputs.has_results == 'true'
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
